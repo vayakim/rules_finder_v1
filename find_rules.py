@@ -4,6 +4,9 @@ import platform
 import multiprocessing
 import subprocess
 import time
+import numpy as np
+
+
 
 from tkinterdnd2 import *
 from tkinter import ttk
@@ -21,11 +24,11 @@ from data_infos import *
 from pattern_infos import *
 from format_data import *
 from apriori_input_data import *
-from decode_c_output import *
-from context_manager import cd
+
 
 from efficient_apriori import apriori
-
+from fim import eclat, fpgrowth, arules
+from fim import apriori as fim_apriori
 
 
 def ask_for_data_infos():
@@ -38,7 +41,7 @@ def ask_for_data_infos():
         showinfo(title='Error_invalid_path',message=msg)
 
 def ask_for_pattern_infos():
-    """Return a frame to collect the pattern information inputs. bnjghnhjg
+    """Return a frame to collect the pattern information inputs. 
     """
     if has_content:
         pattern_infos_frame.generate_rules_frame()
@@ -52,6 +55,10 @@ def generate_rules():
         For Python it is already working, efforts are being put to make it work using a C++ call to a apriori algorithm function,
         with the objective of time reduction and system efficiency.
     """
+    global apriori_raw_data
+    global all_rules
+
+    rules_found.delete(0,END)
     if has_content:
         if data_infos_frame.ended and pattern_infos_frame.ended:
 
@@ -59,67 +66,148 @@ def generate_rules():
             outcome_file = '../rules.txt'
 
             dayfirst = data_infos_frame.dayfirst
+            yearfirst = data_infos_frame.yearfirst
             metadata = data_infos_frame.metadata
             antecedente = data_infos_frame.antecedente
             consequente = data_infos_frame.consequente
             min_rep = float(pattern_infos_frame.min_rep)
+            
             confidence = float(pattern_infos_frame.confidence)
+            confidence_percentage = confidence*100
             period = pattern_infos_frame.period
-
             filtered_data = format_data(apriori_raw_data)
-            filtered_data.select_columns(metadata, antecedente, consequente, dayfirst)
+            filtered_data.select_columns(metadata, antecedente, consequente, dayfirst, yearfirst)
             filtered_data.apply_restrictions(min_rep)
+            fc = pd.Timedelta(days=float(period['days']), hours=float(period['hours']), minutes=float(period['minutes']))
 
             apriori_input = apriori_input_data(filtered_data.formated_data)
             buckets = apriori_input.generate_buckets(period, metadata)
-            apriori_input.generate_cpp_input(file_path='bodon_apriori/buckets_file.txt')
 
-            decoder = decode_c_file(output='rules.txt')
+            # test_rolling_window = filtered_data.formated_data
+            # print(test_rolling_window)
+            # test_rolling_window[metadata] = pd.to_datetime(test_rolling_window[metadata], dayfirst=dayfirst, yearfirst=yearfirst, errors='coerce')
+            # test_rolling_window.set_index(metadata, inplace=True)
 
-            decoder.set_dict(apriori_input.decoder_dict)
-            sup_c = round(float(min_rep/len(buckets)), 2)
-            confidence_c = round(float(confidence),2)
+            # # buckets = []
+            # # for window in test_rolling_window.rolling(fc):
+            # #     print(window)
+            # #     buckets.append(window.values.flatten().tolist())
 
-            start_c_time = time.time()
-            with cd("bodon_apriori"):
-                # we are in /bodon_apriori
-                saida_C = subprocess.call("./apriori.exe %s %s %f %f" % (file_path ,outcome_file , sup_c , confidence_c))
-           
-            end_c_time_without_decode = time.time()
-            decoder.decode()
-            end_c_time_with_decode = time.time()
+            # # print(buckets)
+            start_borgelt_apriori_time = time.time()
+            borgelt_rules = arules(buckets,supp=-int(min_rep), conf=confidence_percentage, report='ab' , zmin=2)
+            end_apriori_borgelt_time = time.time()
+            borgelt_apriori_time = end_apriori_borgelt_time - start_borgelt_apriori_time
 
-            c_apriori_time = end_c_time_without_decode - start_c_time
-            c_py_apriori_time = end_c_time_with_decode - start_c_time
-            if saida_C:
-                print('ERRO!')
-            decoder.generate_rules_csv()
-            #TODO Tratamento de erros
-            print('processando padrões...\n')
+            columns_names = ['Consequente', 'Antecedente', 'Frequência da regra', 'Frequência do antecedente']
+            reordered_columns_names = ['Antecedente', 'Consequente', 'Frequência da regra', 'Frequência do antecedente']
+            borgelt_rules_df = pd.DataFrame(borgelt_rules, columns=columns_names)
+            borgelt_rules_df = borgelt_rules_df[reordered_columns_names]
+            borgelt_rules_df = borgelt_rules_df.loc[borgelt_rules_df['Frequência da regra'] >= int(min_rep)]
+            borgelt_rules_df.reset_index(inplace=True, drop=True)
+            all_rules = borgelt_rules_df.copy()
+            borgelt_rules_df.to_csv('outcome_rules.csv')
+            for index, row in borgelt_rules_df.iterrows():
+                parametro = round(float(row['Frequência da regra']/row['Frequência do antecedente']), 3)
+                rules_found.insert(index, f"{row['Antecedente']} -> {row['Consequente']} confiança {parametro}")
 
-            start_py_time = time.time()
-            itemset, rules = apriori(transactions = buckets, min_support=(min_rep/len(buckets)),  min_confidence=confidence)
-            end_py_time = time.time()
-            py_apriori_time = end_py_time - start_py_time
-
-            print('C Apriori execution time:', c_apriori_time * 1000, 'miliseconds')
-            print('C Apriori execution time + Decoder time:', c_py_apriori_time * 1000, 'miliseconds')
-            print('Python Apriori execution time:', py_apriori_time * 1000, 'miliseconds')
-
-            if not rules:
-                msg = 'No rule found!'
-                showinfo(title='No_rule',message=msg)
-            else:
-                print(f'Foram encontrados {len(rules)} padrões nos dados fornecidos.')
-                for rule in rules:
-                    print(f'O padrão {rule.lhs} -> {rule.rhs} se repete em {round(rule.support * len(apriori_input.buckets))} baldes e possui confiança de {"%.1f"%rule.confidence}\n')
-
+            if borgelt_rules_df.empty:
+                print('Nenhuma regra encontrada!')
+            print('Processamento concluído!')
+            print('C Apriori execution time:', borgelt_apriori_time , 'seconds')
+            
         else:
             msg = 'Something went wrong! Please check the parameters'
             showinfo(title='Error_bad_parameters',message=msg)
     else:
         msg = 'You need to add a valid file path'
         showinfo(title='Error_invalid_path',message=msg)
+
+    
+def generate_analysis(rule_index):
+    global all_rules
+    pairs = []
+    result_slice = []
+    dayfirst = data_infos_frame.dayfirst
+    yearfirst = data_infos_frame.yearfirst
+    metadata = data_infos_frame.metadata
+    antecedente = data_infos_frame.antecedente
+    consequente = data_infos_frame.consequente
+    period = pattern_infos_frame.period
+    rule = all_rules.loc[rule_index]
+
+    fc = pd.Timedelta(days=float(period['days']), hours=float(period['hours']), minutes=float(period['minutes']))
+    print('Processamento de padrões iniciado...\n')
+    analise_tempo_i = time.time()
+
+    for par in rule['Antecedente']:
+        pairs.append(tuple(par))
+    pairs.append(rule['Consequente'])
+
+    
+    unique_elements = []
+    elements_found.delete(0, END)
+    for par in pairs:
+        for element in par:
+            unique_elements.append(element)
+    
+    count = 0
+    for element in set(unique_elements):
+        elements_found.insert(count, element)
+        count += 1
+
+
+    aux = apriori_raw_data.copy()
+    aux[metadata] = pd.to_datetime(aux[metadata], dayfirst=dayfirst, yearfirst=yearfirst, errors='coerce')
+    aux.sort_values(by=metadata, inplace=True)
+    aux.set_index(metadata, inplace=True)
+    #aux é o dataset ordenado por data e indexado pela coluna de data
+
+    found = 1
+    for index, row in aux.iterrows(): 
+        found=1  #se found=0, significa que o par não foi encontrado no intervalo de tempo           
+        if (row[antecedente], row[consequente]) in pairs:
+            end = pd.to_datetime(index + fc)
+            aux1 = aux.loc[index:end].copy() #aux1 é o dataset que contem todas as ações que ocorreram no intervalo de tempo
+            for pair in pairs:
+                if (pair[0] in aux1[antecedente].values) and (pair[1] in aux1[consequente].values):
+                    found = 1
+                else: 
+                    found = 0
+                    break
+            if found:
+                for index2, row2 in aux1.iterrows():
+                    if (row2[antecedente], row2[consequente]) in pairs:
+                        result_slice.append(row2)
+
+    result = pd.DataFrame(result_slice)
+    
+    print(result)
+    result.to_csv(f'rule{rule_index}.csv')
+    print('Processamento concluído!')
+    analise_tempo_f = time.time()
+    print('Tempo de análise das regras nos dados originais:', round(analise_tempo_f - analise_tempo_i, 3), 'segundos')
+
+def investigate_elements(index):
+    metadata = data_infos_frame.metadata
+    dayfirst = data_infos_frame.dayfirst
+    yearfirst = data_infos_frame.yearfirst
+    antecedente = data_infos_frame.antecedente
+    metadata = data_infos_frame.metadata
+    element = str(elements_found.get(index))
+
+    aux = apriori_raw_data.copy()
+    aux[metadata] = pd.to_datetime(aux[metadata], dayfirst=dayfirst, yearfirst=yearfirst, errors='coerce')
+    aux.sort_values(by=metadata, inplace=True)
+    element_actions = []
+    for index, row in aux.iterrows():
+        if str(row[antecedente]) == element:
+            element_actions.append(row)
+    
+    element_actions = pd.DataFrame(element_actions).drop_duplicates()
+    print(element_actions)
+
+
 
 def drop_enter(event):
     event.widget.focus_force()
@@ -132,8 +220,6 @@ def drop_leave(event):
     return event.action
 
 def drop(event):
-    global apriori_raw_data
-    global has_content
     if event.data:
         print('Dropped data:\n', event.data)
         if event.widget == listbox:
@@ -142,21 +228,6 @@ def drop(event):
                 if os.path.exists(f):
                     print('Dropped file: "%s"' % f)
                     listbox.insert('end', f)
-                    try:
-                        apriori_raw_data = pd.read_excel(f)
-                        has_content = True
-                    except:
-                        try:
-                            apriori_raw_data = pd.read_csv(f)
-                            has_content = True
-                        except FileNotFoundError as error:
-                            print(error)
-
-                else:
-                    print('Not dropping file "%s": file does not exist.' % f)
-        else:
-                    print('Not dropping file "%s": file does not exist.' % f)
-
     return event.action
 
 # define drag callbacks
@@ -171,13 +242,58 @@ def drag_init_listbox(event):
     # action type and DnD type:
     return ((ASK, COPY), (DND_FILES, DND_TEXT), data_path)
 
+def onselect(event):
+    global apriori_raw_data
+    global has_content
+    # Note here that Tkinter passes an event object to onselect()
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        value = event.widget.get(index)
+        if value:
+            print('You selected item %d: "%s"' % (index, value))
+            try:
+                apriori_raw_data = pd.read_excel(value)
+                has_content = True
+            except:
+                try:
+                    apriori_raw_data = pd.read_csv(value)
+                    has_content = True
+                except FileNotFoundError as error:
+                    print(error)
+
+def rule_deep_analysis(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        value = event.widget.get(index)
+        if value:
+            print('You selected rule %d: "%s"' % (index, value))
+            generate_analysis(index)
+
+def element_deep_analysis(event):
+    selection = event.widget.curselection()
+    if selection:
+        index = selection[0]
+        value = event.widget.get(index)
+        if value:
+            print('You selected antecedent %d: "%s"' % (index, value))
+            investigate_elements(index)
+    
+    # else:
+    #     msg = 'No rule selected!'
+    #     showinfo(title='Error_no_rule_selected',message=msg)
+
+
+
 root = TkinterDnD.Tk()
 root.withdraw()
 root.title('RULE_FINDER')
-root.grid_rowconfigure(2, weight=1, minsize=250)
-root.grid_columnconfigure(0, weight=1, minsize=150)
-root.grid_columnconfigure(1, weight=1, minsize=150)
+root.grid_rowconfigure(6, weight=1, minsize=100)
+root.grid_columnconfigure(0, weight=1, minsize=300)
+root.grid_columnconfigure(1, weight=1, minsize=300)
 
+all_rules = pd.DataFrame()
 apriori_raw_data = pd.DataFrame()
 apriori_input = pd.DataFrame()
 data_infos_frame = data_infos()
@@ -188,18 +304,18 @@ Label(root, text='Welcome to Pattern Finder!').grid(row=0, column=0, columnspan=
 Label(root, text='To start, drag and drop a file path here:').grid(row=1, column=0, columnspan=2, padx=10, pady=5)
 
 buttonbox_set_data_info = Frame(root)
-buttonbox_set_data_info.grid(row=3, column=0, pady=5)
+buttonbox_set_data_info.grid(row=5, column=0, pady=5)
 Button(buttonbox_set_data_info, text='Select data columns', command=ask_for_data_infos).pack(padx=5)
 
 
 buttonbox_set_pattern_info = Frame(root)
-buttonbox_set_pattern_info.grid(row=3, column=1, pady=5)
+buttonbox_set_pattern_info.grid(row=5, column=1, pady=5)
 Button(buttonbox_set_pattern_info, text='Configure pattern restrictions', command=ask_for_pattern_infos).pack(padx=5)
 
 
 buttonbox_generate_rules = Frame(root)
-buttonbox_generate_rules.grid(row=4, column=0, columnspan=2 ,pady=5)
-Button(buttonbox_generate_rules, text='Generate Rules!', command=generate_rules).pack(side=BOTTOM)
+buttonbox_generate_rules.grid(row=6, column=0, columnspan=2 ,pady=2)
+Button(buttonbox_generate_rules, text='Generate Rules!', command=generate_rules).pack()
 
 #############################################################################
 ##                                                                         ##     
@@ -207,8 +323,50 @@ Button(buttonbox_generate_rules, text='Generate Rules!', command=generate_rules)
 ##                                                                         ##
 #############################################################################
 listbox = Listbox(root, name='dnd_demo_listbox',
-                    selectmode='extended', width=1, height=1)
-listbox.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky='news')
+                    selectmode='browse', width=1, height=5)
+listbox.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky='new')
+
+# link a scrollbar to a list
+scrollbar = ttk.Scrollbar(
+    root,
+    orient=VERTICAL,
+    command=listbox.yview
+)
+
+listbox['yscrollcommand'] = scrollbar.set
+scrollbar.grid(row=2, column=2, padx=5, pady=5, sticky='new')
+
+################################LISTBOX FOR THE RULES FOUND####################################
+rules_found = Listbox(root, name='rules_listbox',
+                    selectmode='browse', width=1, height=5)
+rules_found.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky='sew')
+
+# link a scrollbar to a list
+scrollbar_rules = ttk.Scrollbar(
+    root,
+    orient=VERTICAL,
+    command=listbox.yview
+)
+
+rules_found['yscrollcommand'] = scrollbar_rules.set
+scrollbar_rules.grid(row=3, column=2, padx=5, pady=5, sticky='sew')
+
+################################LISTBOX FOR deeper investigation####################################
+elements_found = Listbox(root, name='elements_listbox',
+                    selectmode='browse', width=1, height=5)
+elements_found.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky='sew')
+
+# link a scrollbar to a list
+scrollbar_ant = ttk.Scrollbar(
+    root,
+    orient=VERTICAL,
+    command=listbox.yview
+)
+
+elements_found['yscrollcommand'] = scrollbar_ant.set
+scrollbar_ant.grid(row=4, column=2, padx=5, pady=5, sticky='sew')
+
+
 
 #listbox.insert(END, os.path.abspath(__file__))
 
@@ -219,6 +377,9 @@ listbox.dnd_bind('<<DropEnter>>', drop_enter)
 listbox.dnd_bind('<<DropPosition>>', drop_position)
 listbox.dnd_bind('<<DropLeave>>', drop_leave)
 listbox.dnd_bind('<<Drop>>', drop)
+listbox.dnd_bind('<<ListboxSelect>>', onselect)
+rules_found.dnd_bind('<<ListboxSelect>>', rule_deep_analysis)
+elements_found.dnd_bind('<<ListboxSelect>>', element_deep_analysis)
 
 
 listbox.drag_source_register(1, DND_FILES)

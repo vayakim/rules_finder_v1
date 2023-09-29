@@ -1,0 +1,3 @@
+,Antecedente,Consequente,Frequência da regra,Frequência do antecedente
+0,"(('RODRIGO', 'GABRIEL'),)","('RODRIGO', 'VINICIUS')",9,10
+1,"(('RODRIGO', 'VINICIUS'),)","('RODRIGO', 'GABRIEL')",9,10

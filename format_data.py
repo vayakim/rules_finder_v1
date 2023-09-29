@@ -7,13 +7,13 @@ class format_data:
         self.original_data = pd.DataFrame(data)
         self.ordered_data = pd.DataFrame()
         
-    def select_columns(self, metadata, antecedente, consequente, dayfirst):
+    def select_columns(self, metadata, antecedente, consequente, dayfirstx, yearfirstx):
         self.metadata = metadata
         self.antecedente = antecedente
         self.consequente = consequente
 
         self.ordered_data = self.original_data[[metadata, antecedente, consequente]]
-        self.ordered_data[metadata] = pd.to_datetime(self.ordered_data[metadata],infer_datetime_format=True, dayfirst=dayfirst, errors='coerce')
+        self.ordered_data.loc[:,metadata] = pd.to_datetime(self.ordered_data[metadata], dayfirst=dayfirstx, yearfirst=yearfirstx, errors='coerce')
         self.ordered_data.sort_values(by=metadata, inplace=True, ignore_index=True)
 
     def apply_restrictions(self, min_rep):

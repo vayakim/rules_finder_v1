@@ -11,6 +11,10 @@ class pattern_infos:
     def generate_rules_frame(self):
         msg = 'Confidence is a measure of the reliability or support for a given association rule. It is defined as the proportion of cases in which the association rule holds true, or in other words, the percentage of times that the items in the antecedent appear in the same transaction as the items in the consequent. For example, suppose we have a dataset of 1000 transactions, and the itemset {milk, bread} appears in 100 of those transactions. The itemset {milk} appears in 200 of those transactions. The confidence would be 100/200 = 0.5.'
         showinfo(title='Confiança',message=msg)
+
+        def go_to_next_element(event):
+            event.widget.tk_focusNext().focus()
+
         def confirm_rules_info():
             self.min_rep = support_entry.get()
             self.confidence = confidence_entry.get()
@@ -73,6 +77,12 @@ class pattern_infos:
         # confirm button
         confirm_button = Button(rules_frame, text="Confirmar", command=confirm_rules_info)
         confirm_button.grid(row=7, column=1, padx=5, pady=1)
+
+        support_entry.bind('<Return>', go_to_next_element)
+        confidence_entry.bind('<Return>', go_to_next_element)
+        days_entry.bind('<Return>', go_to_next_element)
+        hours_entry.bind('<Return>', go_to_next_element)
+        minutes_entry.bind('<Return>', go_to_next_element)
     
     def reset(self):
         self.ended = False

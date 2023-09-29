@@ -47,7 +47,7 @@ class apriori_input_data:
     def generate_cpp_input(self, file_path):
         """Generates a file with the data as the input required for the C++ apriori algorithm function developed by Ferenc Bodon.
         """
-        #cada transação precisa ser uma hash
+        #cada transação precisa ter um codigo unico
         #cada linha do arquivo de saida precisa conter todas as transaçoes de um balde
         #o conjunto de baldes possui varios baldes individuais contendo n transações
         transacoes_por_balde = []
@@ -85,8 +85,9 @@ class apriori_input_data:
             for balde in todos_baldes:
                 writer.writerow(balde)
             the_file.close()
-        
+
         self.decoder_dict = baldes_dict
+        return todos_baldes
     
     
         

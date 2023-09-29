@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "algorithm": "c",
+        "fstream": "c",
+        "type_traits": "c",
+        "typeinfo": "c",
+        "xiosbase": "c",
+        "xstring": "c"
+    }
+}

@@ -1,9 +1,11 @@
 from tkinter import *
 from tkinter.messagebox import showinfo
+from tkinter import ttk
 
 class data_infos:
     def __init__(self):
-        self.dayfirst = True
+        self.dayfirst = int()
+        self.yearfirst = int()
         self.metadata = StringVar()
         self.antecedente = StringVar()
         self.consequente = StringVar()
@@ -14,15 +16,27 @@ class data_infos:
         """
         informations_frame = Tk()
 
+        def go_to_next_element(event):
+            event.widget.tk_focusNext().focus()
+
         def confirm_data_infos():
+            if format_cb.current() == 0:
+                self.dayfirst = 1
+                self.yearfirst = 0
+            else:
+                self.dayfirst = 0
+                self.yearfirst = 1
             self.metadata = metadata_entry.get()
             self.antecedente = antecedente_entry.get()
             self.consequente = consequente_entry.get()
-            informations_frame.destroy()
             if self.metadata and self.antecedente and self.consequente:
                 self.ended = True
-                msg = 'Information added'
+                msg = f'Information added'
                 showinfo(title='Information',message=msg)
+                informations_frame.destroy()
+                # bind the selected value changes
+
+            
 
         informations_frame.grid_rowconfigure(1, weight=1, minsize=50)
         informations_frame.grid_rowconfigure(2, weight=1, minsize=50)
@@ -59,12 +73,32 @@ class data_infos:
         confirm_button = Button(informations_frame, text="Confirm", command=confirm_data_infos)
         confirm_button.grid(row=4, column=1, padx=5, pady=10)
 
-        #dayfirst button
-        dayfirst_button = Checkbutton(informations_frame, text='day first format', width= 20,variable=self.dayfirst,onvalue=True,offvalue=False)
-        dayfirst_button.grid(row=4, column=0, padx=5, pady=10)
-    
+        #dayfirst/yearfirst che
+        # ckboxes
+            # create a combobox
 
+        format_cb = ttk.Combobox(informations_frame)
+
+        # get first 3 letters of every month name
+        format_cb['values'] = ['day first (dd/mm/yy)', 'year first (yy/mm/dd)']
+
+        # prevent typing a value
+        format_cb['state'] = 'readonly'
+        format_cb.current(0)
+
+        # place the widget
+        format_cb.grid(row=4, column=0, padx=5, pady=10)
+
+        metadata_entry.bind('<Return>', go_to_next_element)
+        antecedente_entry.bind('<Return>', go_to_next_element)
+        consequente_entry.bind('<Return>', go_to_next_element)
+    
     def reset(self):
+        self.dayfirst = int()
+        self.yearfirst = int()
+        self.metadata = StringVar()
+        self.antecedente = StringVar()
+        self.consequente = StringVar()
         self.ended = False
 
 
